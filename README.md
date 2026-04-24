@@ -1,6 +1,6 @@
 # Object Tracker Mobile App
 
-Real-time object tracker: a Python FastAPI server runs YOLOv8 detection and a React Native (Expo) mobile client captures camera frames, ships them to the server, and overlays bounding boxes on the live preview.
+Real-time multi-object tracker: a Python FastAPI server runs YOLOv8 detection and a React Native (Expo) mobile client captures camera frames, ships them to the server, and overlays color-coded bounding boxes and motion trails on the live preview.
 
 ## Architecture
 
@@ -8,14 +8,14 @@ Real-time object tracker: a Python FastAPI server runs YOLOv8 detection and a Re
 ┌──────────────────────────────────────┐        Wi-Fi / LAN
 │  Phone (Expo Go)                     │ ──────────────────────►  FastAPI server
 │  • Captures JPEG frames via camera   │  POST /track-frame         (Python)
-│  • Overlays bounding boxes on screen │ ◄──────────────────────  YOLOv8 inference
-└──────────────────────────────────────┘        JSON boxes
+│  • Overlays boxes + path trails      │ ◄──────────────────────  YOLOv8 + IoU tracker
+└──────────────────────────────────────┘        JSON boxes + track IDs
 ```
 
 ## Repository layout
 
 ```
-server/   Python FastAPI backend (YOLOv8 detection)
+server/   Python FastAPI backend (YOLOv8 detection + multi-object tracker)
 client/   Expo / React Native frontend (file-based routing via expo-router)
 ```
 
@@ -57,6 +57,8 @@ Edit `server/.env` if needed. Key variables:
 | `YOLO_MODEL` | `yolov8n.pt` | Model file (auto-downloaded on first run) |
 | `YOLO_CONF` | `0.35` | Minimum detection confidence |
 | `YOLO_DEVICE` | `cpu` | `cpu` or `0` for CUDA GPU 0 |
+| `CORS_ALLOW_ORIGINS` | `*` | Comma-separated origins or `*` |
+| `MAX_IMAGE_BYTES` | `8388608` | Request size guard (8 MB) |
 
 #### Start the server
 
@@ -83,8 +85,7 @@ ipconfig getifaddr en0
 #### Prerequisites
 
 - Node.js 18+
-- **Expo Go** installed on your iOS device  
-  → Download from the [App Store](https://apps.apple.com/app/expo-go/id982107779)
+- **Expo Go** installed on your iOS or Android device
 
 #### Install dependencies
 
@@ -113,13 +114,25 @@ npm start
 
 This prints a QR code in the terminal.
 
-#### Connect your iPhone
+#### Connect your phone
 
-1. Open the **Camera** app on your iPhone (or open **Expo Go** directly).
-2. Point the camera at the QR code shown in the terminal.
-3. Tap the banner that appears — this opens the app in **Expo Go**.
-4. Grant camera permission when prompted.
-5. Tap **Start Tracking** and point the camera at a bottle (or whichever `TARGET_CLASS` you configured).
+1. Open **Expo Go** on your iOS or Android device.
+2. Scan the QR code shown in the terminal.
+3. Grant camera permission when prompted.
+4. Tap **Start tracking** and point the camera at a bottle (or whichever `TARGET_CLASS` you configured).
+
+---
+
+## Tracking behaviour
+
+The server runs a greedy IoU-based multi-object tracker across frames. Each detected object receives a stable `track_id` that persists as long as it remains visible (IoU threshold ≥ 0.15 between consecutive frames). New detections that don't match an existing track get a fresh ID.
+
+The client renders:
+- **Color-coded bounding boxes** — each track ID maps to a fixed color from an 8-color palette
+- **Motion trails** — up to 30 fading center-point dots per track showing recent movement
+- **Status panel** — server URL, tracking on/off, round-trip latency, object count, frame resolution, and any error
+
+Frames are captured at 25% JPEG quality and sent as fast as the server can respond (with a 20 ms minimum gap between requests).
 
 ---
 
@@ -127,5 +140,5 @@ This prints a QR code in the terminal.
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/health` | GET | Server status, backend name, model info |
-| `/track-frame` | POST | Multipart `file` field (JPEG); returns `{ width, height, boxes: [{ x, y, width, height, label, confidence }] }` |
+| `/health` | GET | Server status, backend name, model info, ultralytics availability |
+| `/track-frame` | POST | Multipart `file` field (JPEG); returns `{ width, height, boxes: [{ x, y, width, height, label, confidence, track_id }] }` |
