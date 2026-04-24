@@ -136,8 +136,6 @@ def _detect_target_boxes(frame: np.ndarray) -> list[dict[str, Any]]:
     for i in range(len(xyxy_np)):
         class_id = int(cls_np[i])
         class_name = str(names.get(class_id, class_id)).lower()
-        if class_name != TARGET_CLASS:
-            continue
 
         x1, y1, x2, y2 = xyxy_np[i].tolist()
         x1i, y1i = int(max(0, round(x1))), int(max(0, round(y1)))
@@ -148,7 +146,7 @@ def _detect_target_boxes(frame: np.ndarray) -> list[dict[str, Any]]:
                 "y": y1i,
                 "width": max(0, x2i - x1i),
                 "height": max(0, y2i - y1i),
-                "label": TARGET_CLASS,
+                "label": class_name,
                 "confidence": float(conf_np[i]),
             }
         )

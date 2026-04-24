@@ -174,7 +174,7 @@ export default function HomeScreen() {
           setIsSending(false);
         }
 
-        await new Promise((r) => setTimeout(r, 250));
+        await new Promise((r) => setTimeout(r, 20));
       }
     };
 
