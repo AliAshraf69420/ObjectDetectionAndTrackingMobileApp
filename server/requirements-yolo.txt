@@ -1,0 +1,6 @@
+# Optional extra dependencies to enable DETECTION_BACKEND=yolo
+#
+# NOTE: Your current venv is Python 3.14, which typically has no PyTorch wheels yet.
+# If installs hang/compile, use Docker (recommended) or a Python 3.11/3.12 env.
+
+ultralytics>=8.2
