@@ -7,7 +7,7 @@ import {
   Alert,
   Platform,
 } from 'react-native';
-import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import { CameraView, CameraType, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { router } from 'expo-router';
 import { useAppStore } from '../src/store/AppContext';
 import { useRecordingTimer } from '../src/hooks/useRecordingTimer';
@@ -15,7 +15,8 @@ import { colors, spacing, font, radius } from '../src/components/theme';
 
 export default function RecordScreen() {
   const { appState, dispatch } = useAppStore();
-  const [permission, requestPermission] = useCameraPermissions();
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [micPermission, requestMicPermission] = useMicrophonePermissions();
   const cameraRef = useRef<CameraView>(null);
   const isRecording = appState === 'recording';
   const timer = useRecordingTimer();
@@ -42,16 +43,22 @@ export default function RecordScreen() {
     cameraRef.current?.stopRecording();
   }, []);
 
-  if (!permission) {
-    return <View style={styles.center}><Text style={styles.textSec}>Requesting camera permission…</Text></View>;
+  if (!cameraPermission || !micPermission) {
+    return <View style={styles.center}><Text style={styles.textSec}>Requesting permissions…</Text></View>;
   }
 
-  if (!permission.granted) {
+  if (!cameraPermission.granted || !micPermission.granted) {
+    const requestAll = async () => {
+      if (!cameraPermission.granted) await requestCameraPermission();
+      if (!micPermission.granted) await requestMicPermission();
+    };
     return (
       <View style={styles.center}>
-        <Text style={styles.textSec}>Camera permission is required.</Text>
-        <TouchableOpacity style={styles.btnPrimary} onPress={requestPermission}>
-          <Text style={styles.btnText}>Grant Permission</Text>
+        <Text style={styles.textSec}>
+          Camera and microphone permissions are required.{'\n'}(Video is recorded without audio.)
+        </Text>
+        <TouchableOpacity style={styles.btnPrimary} onPress={requestAll}>
+          <Text style={styles.btnText}>Grant Permissions</Text>
         </TouchableOpacity>
       </View>
     );
@@ -64,6 +71,7 @@ export default function RecordScreen() {
         style={styles.camera}
         facing="back"
         mode="video"
+        videoQuality="1080p"
       >
         {/* Instructions */}
         {!isRecording && (
@@ -108,7 +116,7 @@ export default function RecordScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
+  container: { flex: 1, backgroundColor: '#000' },
   camera: { flex: 1 },
   center: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   textSec: { color: colors.textSecondary, fontSize: font.base, marginBottom: spacing.md, textAlign: 'center' },

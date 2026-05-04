@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,15 +6,20 @@ import {
   TouchableOpacity,
   ScrollView,
   FlatList,
+  Platform,
 } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { router } from 'expo-router';
+import * as MediaLibrary from 'expo-media-library';
 import { useAppStore } from '../src/store/AppContext';
 import { colors, spacing, font, radius } from '../src/components/theme';
 import type { PinEvent } from '../src/types/ProcessingResult';
 
 export default function ResultScreen() {
   const { result, appState, error, dispatch } = useAppStore();
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
 
   const player = useVideoPlayer(result?.outputVideoUri ?? null, p => {
     p.loop = true;
@@ -24,6 +29,33 @@ export default function ResultScreen() {
   const handleReset = () => {
     dispatch({ type: 'RESET' });
     router.replace('/record');
+  };
+
+  const handleSaveToGallery = async () => {
+    if (!result?.outputVideoUri) return;
+    setSaveStatus('saving');
+    try {
+      if (!mediaPermission?.granted) {
+        const { granted } = await requestMediaPermission();
+        if (!granted) { setSaveStatus('error'); return; }
+      }
+      let uri = result.outputVideoUri;
+      if (uri.startsWith('content://media/')) {
+        // Already in MediaStore — nothing to save
+        setSaveStatus('saved');
+        return;
+      }
+      if (Platform.OS === 'android' && !uri.startsWith('file://')) {
+        const dest = `${FileSystem.cacheDirectory}gallery_save.mp4`;
+        await FileSystem.copyAsync({ from: uri, to: dest });
+        uri = dest;
+      }
+      await MediaLibrary.saveToLibraryAsync(uri);
+      setSaveStatus('saved');
+    } catch (e) {
+      console.error('[Save to Gallery]', e);
+      setSaveStatus('error');
+    }
   };
 
   if (appState === 'failed' || !result) {
@@ -48,7 +80,7 @@ export default function ResultScreen() {
         <VideoView
           player={player}
           style={styles.video}
-          allowsFullscreen
+          fullscreenOptions={{ isEnabled: true }}
           allowsPictureInPicture
           contentFit="contain"
         />
@@ -87,6 +119,18 @@ export default function ResultScreen() {
       )}
 
       {/* Actions */}
+      <TouchableOpacity
+        style={[styles.btnSave, saveStatus === 'saved' && styles.btnSaveDone, saveStatus === 'error' && styles.btnSaveError]}
+        onPress={handleSaveToGallery}
+        disabled={saveStatus === 'saving' || saveStatus === 'saved'}
+      >
+        <Text style={styles.btnText}>
+          {saveStatus === 'idle' && 'Save to Gallery'}
+          {saveStatus === 'saving' && 'Saving…'}
+          {saveStatus === 'saved' && 'Saved!'}
+          {saveStatus === 'error' && 'Save Failed — Tap to Retry'}
+        </Text>
+      </TouchableOpacity>
       <View style={styles.actionsRow}>
         <TouchableOpacity style={styles.btnSecondary} onPress={() => router.push('/debug')}>
           <Text style={styles.btnSecondaryText}>Debug Info</Text>
@@ -199,7 +243,15 @@ const styles = StyleSheet.create({
   cellSmall: { flex: 0.5 },
   headerText: { color: colors.textSecondary, fontSize: font.sm, fontWeight: '600' },
 
-  actionsRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  btnSave: {
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.md,
+    borderRadius: radius.full,
+    alignItems: 'center',
+  },
+  btnSaveDone: { backgroundColor: '#2e7d32' },
+  btnSaveError: { backgroundColor: colors.error },
+  actionsRow: { flexDirection: 'row', gap: spacing.sm },
   btnPrimary: {
     flex: 1,
     backgroundColor: colors.primary,

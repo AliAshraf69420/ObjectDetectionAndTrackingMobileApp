@@ -12,6 +12,8 @@
     "expo": "~54.0.33",
     "expo-camera": "~17.0.10",
     "expo-file-system": "~19.0.22",
+    "expo-linking": "~8.0.12",
+    "expo-media-library": "~18.2.1",
     "expo-router": "~6.0.23",
     "expo-status-bar": "~3.0.9",
     "expo-video": "~3.0.16",
