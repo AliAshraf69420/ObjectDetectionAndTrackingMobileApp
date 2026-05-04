@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "RC Bowling Tracker",
+    "slug": "rc-bowling-tracker",
+    "scheme": "rcbowling",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.aliashraf69420.rcbowlingtracker"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-video"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9ea8d613-608d-4a9d-88d7-e6215bb72d63"
+      }
+    }
+  }
+}
