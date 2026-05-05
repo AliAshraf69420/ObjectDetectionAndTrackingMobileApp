@@ -303,7 +303,7 @@ The app produces:
 
 ## Course Context
 
-This project was developed for **DSAI 352** (Bonus Project) at the American University in Cairo. The task requires building a mobile application that:
+This project was developed for **DSAI 352** (Bonus Project) at Zewail City. The task requires building a mobile application that:
 
 - Captures a live demonstration video of an RC car knocking down bowling pins
 - Processes the video **entirely on-device** (no cloud/server inference)
