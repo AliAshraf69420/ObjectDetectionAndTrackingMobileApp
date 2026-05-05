@@ -1,13 +1,12 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Alert,
-  Platform,
 } from 'react-native';
-import { CameraView, CameraType, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router } from 'expo-router';
 import { useAppStore } from '../src/store/AppContext';
 import { useRecordingTimer } from '../src/hooks/useRecordingTimer';
@@ -16,7 +15,6 @@ import { colors, spacing, font, radius } from '../src/components/theme';
 export default function RecordScreen() {
   const { appState, dispatch } = useAppStore();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const [micPermission, requestMicPermission] = useMicrophonePermissions();
   const cameraRef = useRef<CameraView>(null);
   const isRecording = appState === 'recording';
   const timer = useRecordingTimer();
@@ -43,22 +41,16 @@ export default function RecordScreen() {
     cameraRef.current?.stopRecording();
   }, []);
 
-  if (!cameraPermission || !micPermission) {
+  if (!cameraPermission) {
     return <View style={styles.center}><Text style={styles.textSec}>Requesting permissions…</Text></View>;
   }
 
-  if (!cameraPermission.granted || !micPermission.granted) {
-    const requestAll = async () => {
-      if (!cameraPermission.granted) await requestCameraPermission();
-      if (!micPermission.granted) await requestMicPermission();
-    };
+  if (!cameraPermission.granted) {
     return (
       <View style={styles.center}>
-        <Text style={styles.textSec}>
-          Camera and microphone permissions are required.{'\n'}(Video is recorded without audio.)
-        </Text>
-        <TouchableOpacity style={styles.btnPrimary} onPress={requestAll}>
-          <Text style={styles.btnText}>Grant Permissions</Text>
+        <Text style={styles.textSec}>Camera permission is required.</Text>
+        <TouchableOpacity style={styles.btnPrimary} onPress={requestCameraPermission}>
+          <Text style={styles.btnText}>Grant Permission</Text>
         </TouchableOpacity>
       </View>
     );
@@ -72,45 +64,39 @@ export default function RecordScreen() {
         facing="back"
         mode="video"
         videoQuality="1080p"
-      >
-        {/* Instructions */}
-        {!isRecording && (
-          <View style={styles.instructionBox}>
-            <Text style={styles.instructionTitle}>RC Bowling Tracker</Text>
-            <Text style={styles.instructionText}>
-              Aim camera at the bowling lane, then tap record.
-            </Text>
-          </View>
-        )}
+      />
 
-        {/* Timer */}
-        {isRecording && (
-          <View style={styles.timerBox}>
-            <View style={styles.recDot} />
-            <Text style={styles.timerText}>{timer.formatted}</Text>
-          </View>
-        )}
-
-        {/* Controls row */}
-        <View style={styles.controlsRow}>
-          {/* Debug shortcut */}
-          <TouchableOpacity style={styles.btnIcon} onPress={() => router.push('/debug')}>
-            <Text style={styles.btnIconText}>⚙</Text>
-          </TouchableOpacity>
-
-          {/* Main record button */}
-          <TouchableOpacity
-            style={[styles.recordBtn, isRecording && styles.recordBtnActive]}
-            onPress={isRecording ? stopRecording : startRecording}
-            activeOpacity={0.8}
-          >
-            <View style={[styles.recordInner, isRecording && styles.recordInnerStop]} />
-          </TouchableOpacity>
-
-          {/* Flip — placeholder */}
-          <View style={styles.btnIcon} />
+      {!isRecording && (
+        <View style={styles.instructionBox}>
+          <Text style={styles.instructionTitle}>RC Bowling Tracker</Text>
+          <Text style={styles.instructionText}>
+            Aim camera at the bowling lane, then tap record.
+          </Text>
         </View>
-      </CameraView>
+      )}
+
+      {isRecording && (
+        <View style={styles.timerBox}>
+          <View style={styles.recDot} />
+          <Text style={styles.timerText}>{timer.formatted}</Text>
+        </View>
+      )}
+
+      <View style={styles.controlsRow}>
+        <TouchableOpacity style={styles.btnIcon} onPress={() => router.push('/debug')}>
+          <Text style={styles.btnIconText}>⚙</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.recordBtn, isRecording && styles.recordBtnActive]}
+          onPress={isRecording ? stopRecording : startRecording}
+          activeOpacity={0.8}
+        >
+          <View style={[styles.recordInner, isRecording && styles.recordInnerStop]} />
+        </TouchableOpacity>
+
+        <View style={styles.btnIcon} />
+      </View>
     </View>
   );
 }

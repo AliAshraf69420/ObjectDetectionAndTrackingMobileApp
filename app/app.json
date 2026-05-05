@@ -34,8 +34,7 @@
         "expo-camera",
         {
           "cameraPermission": "Allow RC Bowling Tracker to access your camera.",
-          "microphonePermission": "Allow RC Bowling Tracker to access your microphone.",
-          "recordAudioAndroid": true
+          "recordAudioAndroid": false
         }
       ],
       "expo-video",

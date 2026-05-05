@@ -17,7 +17,7 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="index"      options={{ headerShown: false }} />
-        <Stack.Screen name="record"     options={{ title: 'Record Run', headerBackVisible: true }} />
+        <Stack.Screen name="record"     options={{ headerShown: false }} />
         <Stack.Screen name="processing" options={{ title: 'Processing', headerBackVisible: false, gestureEnabled: false }} />
         <Stack.Screen name="result"     options={{ title: 'Results' }} />
         <Stack.Screen name="debug"      options={{ title: 'Debug / Settings' }} />
