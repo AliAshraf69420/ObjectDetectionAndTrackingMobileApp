@@ -168,30 +168,82 @@ The `PinTracker` mirrors the logic from the reference Colab notebook:
 
 ### Prerequisites
 
-- Node.js 18+
-- Android SDK + NDK
-- Java 17+
-- An Android device (or emulator with camera support)
+| Tool | Required version | Notes |
+|------|-----------------|-------|
+| **Node.js** | 18 or later | `node --version` to verify |
+| **JDK** | **17 exactly** | 11 and 21 both fail; use `java -version` to verify |
+| **Android SDK Platform** | **35** | Install via SDK Manager in Android Studio |
+| **Android Build Tools** | **35.0.0** | Install via SDK Manager |
+| **Android NDK** | **27.1.12297006** | Install via SDK Manager → SDK Tools → NDK (Side by side) |
+| **Android device** | API 24+ (Android 7.0+) | USB debugging must be enabled |
 
-### Setup
+### First-Time Setup (compile on the first try)
+
+> **Critical**: The `android/` directory is already committed with custom Kotlin native modules. **Do not run `expo prebuild`** — it would overwrite the native code and break the build.
+
+**1. Set your Android SDK path**
+
+Create `app/android/local.properties` (not tracked by git) pointing at your SDK:
+
+```
+# macOS / Linux
+sdk.dir=/Users/<you>/Library/Android/sdk
+
+# Windows
+sdk.dir=C\:\\Users\\<you>\\AppData\\Local\\Android\\sdk
+```
+
+Or export the environment variable instead:
 
 ```bash
-# Clone the repo
-git clone https://github.com/AliAshraf69420/ObjectDetectionAndTrackingMobileApp.git
-cd ObjectDetectionAndTrackingMobileApp
+export ANDROID_HOME=$HOME/Library/Android/sdk   # macOS
+export ANDROID_HOME=$HOME/Android/Sdk            # Linux
+```
 
-# Install JS dependencies
+**2. Verify your JDK**
+
+```bash
+java -version   # must print "17"
+```
+
+If you have multiple JDKs, set `JAVA_HOME` explicitly:
+
+```bash
+export JAVA_HOME=/path/to/jdk-17
+```
+
+**3. Install JS dependencies**
+
+```bash
 cd app
 npm install
+```
 
-# Generate the native Android project (if not already present)
-npx expo prebuild --platform android
+**4. Connect your device**
 
-# Build and run on a connected Android device
+- Enable **Developer Options** on the device (tap Build Number 7 times in Settings → About)
+- Enable **USB Debugging**
+- Connect via USB and accept the RSA fingerprint prompt on the device
+- Verify the device is visible: `adb devices` (should list your device, not `unauthorized`)
+
+**5. Build and run**
+
+```bash
 npx expo run:android
 ```
 
-> **Note**: This is a custom Expo development build (not Expo Go) because the app requires native TFLite libraries, `MediaCodec` video processing, and OpenGL ES encoder input.
+The first build downloads Gradle 8.14.3 and all Maven dependencies (~500 MB). This typically takes **10–15 minutes** on a fresh machine. Subsequent builds are fast.
+
+### Common First-Build Failures
+
+| Error | Fix |
+|-------|-----|
+| `SDK location not found` | Create `android/local.properties` with `sdk.dir` (step 1) |
+| `Unsupported class file major version` | JDK is not 17; switch versions and set `JAVA_HOME` |
+| `Failed to find NDK` | Install NDK **27.1.12297006** via Android Studio SDK Manager → SDK Tools → NDK (Side by side) |
+| `No connected devices` | Run `adb devices`; check USB debugging is on and RSA prompt was accepted |
+| `Gradle build daemon disappeared` | Increase heap: add `org.gradle.jvmargs=-Xmx4096m` to `android/gradle.properties` |
+| `Could not resolve org.tensorflow:tensorflow-lite` | No internet during first build; Gradle must download Maven deps — connect and retry |
 
 ### Model Setup
 
