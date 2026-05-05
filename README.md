@@ -1,144 +1,261 @@
-# Object Tracker Mobile App
+# RC Bowling Tracker 🎳🚗
 
-Real-time multi-object tracker: a Python FastAPI server runs YOLOv8 detection and a React Native (Expo) mobile client captures camera frames, ships them to the server, and overlays color-coded bounding boxes and motion trails on the live preview.
+An Android mobile app that records a toy RC car bowling setup, runs **fully offline** YOLOv8 object detection on every frame, tracks pin falls and car trajectory, and produces an annotated output video with fall order, path overlay, and scoring — all on-device.
+
+Built with **React Native + Expo** (TypeScript) for the UI and **Kotlin native modules** for the heavy-lifting: video decode → TFLite inference → pin tracking → annotated video encoding via `MediaCodec` + OpenGL ES surface input.
+
+---
+
+## Features
+
+- **Live video capture** via `expo-camera`
+- **On-device inference** — no server, no network required at inference time
+- **Custom-trained YOLOv8n** detector (fine-tuned on a toy bowling dataset)
+- **4-class detection**: `ball`, `car`, `fallen-pins`, `standing-pins`
+- **Pin fall tracking** with standing → fallen transition detection and hit-order assignment
+- **RC car path tracking** with trajectory overlay
+- **Annotated output video** rendered with:
+  - Color-coded bounding boxes (green=car, yellow=ball, magenta=standing, red+glow=fallen)
+  - Fall order labels and timestamps
+  - Car path line (red)
+  - Standing / fallen pin count panel
+  - Fall History timeline panel
+- **Result summary** — elapsed time, total pins knocked down, fall event table, car path data
+
+---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────┐        Wi-Fi / LAN
-│  Phone (Expo Go)                     │ ──────────────────────►  FastAPI server
-│  • Captures JPEG frames via camera   │  POST /track-frame         (Python)
-│  • Overlays boxes + path trails      │ ◄──────────────────────  YOLOv8 + IoU tracker
-└──────────────────────────────────────┘        JSON boxes + track IDs
+┌──────────────────────────────────────────────────────────┐
+│  React Native / Expo (TypeScript)                        │
+│  ├── RecordScreen  — camera preview, start/stop          │
+│  ├── ProcessingScreen — progress bar + status            │
+│  └── ResultScreen  — annotated video + score summary     │
+└──────────────────┬───────────────────────────────────────┘
+                   │  ProcessingModule.processVideo(uri)
+                   ▼
+┌──────────────────────────────────────────────────────────┐
+│  Kotlin Native Module (Android)                          │
+│  ├── VideoProcessor  — decode / encode / main loop       │
+│  ├── TFLiteDetector  — YOLOv8n inference (640×640)       │
+│  ├── PinTracker      — IoU + center-distance matching    │
+│  └── EglSurfaceHelper — GPU surface input for encoder    │
+└──────────────────────────────────────────────────────────┘
 ```
 
-## Repository layout
+### Processing Pipeline
 
 ```
-server/   Python FastAPI backend (YOLOv8 detection + multi-object tracker)
-client/   Expo / React Native frontend (file-based routing via expo-router)
-```
-
-## How to run
-
-Both the server and client must be running at the same time, and both your development machine and phone must be on the **same Wi-Fi network**.
-
----
-
-### 1. Server
-
-#### Prerequisites
-
-- Python 3.11 or 3.12 (PyTorch wheels are not yet available for Python 3.13+)
-
-#### Install dependencies
-
-```bash
-cd server
-python3.12 -m venv .venv
-source .venv/bin/activate
-
-pip install -r requirements.txt          # FastAPI, OpenCV, etc.
-pip install -r requirements-yolo.txt     # YOLOv8 via ultralytics
-```
-
-#### Configure environment
-
-```bash
-cp .env.example .env
-```
-
-Edit `server/.env` if needed. Key variables:
-
-| Variable | Default | Description |
-|---|---|---|
-| `DETECTION_BACKEND` | `yolo` | Set to `none` to disable detection |
-| `TARGET_CLASS` | `bottle` | COCO class name to track |
-| `YOLO_MODEL` | `yolov8n.pt` | Model file (auto-downloaded on first run) |
-| `YOLO_CONF` | `0.35` | Minimum detection confidence |
-| `YOLO_DEVICE` | `cpu` | `cpu` or `0` for CUDA GPU 0 |
-| `CORS_ALLOW_ORIGINS` | `*` | Comma-separated origins or `*` |
-| `MAX_IMAGE_BYTES` | `8388608` | Request size guard (8 MB) |
-
-#### Start the server
-
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-`--host 0.0.0.0` is required so that your phone on the same Wi-Fi can reach the server. On first run, `yolov8n.pt` (~6 MB) is downloaded automatically.
-
-Find your machine's LAN IP address — you will need it in the next step:
-
-```bash
-# Linux
-ip route get 1 | awk '{print $7; exit}'
-
-# macOS
-ipconfig getifaddr en0
+User records video
+        ↓
+Raw video saved to local storage
+        ↓
+Native module decodes frames (MediaCodec)
+        ↓
+Each frame → Bitmap → TFLite YOLOv8n inference (640×640)
+        ↓
+Detections split: pins → PinTracker, car → path log, ball → annotate
+        ↓
+PinTracker matches detections across frames (IoU/distance)
+        ↓
+Standing→fallen transitions detected, fall order assigned
+        ↓
+Annotated frame drawn (Canvas) → GPU texture → encoder input surface
+        ↓
+Encoded H.264 output via MediaCodec + MediaMuxer
+        ↓
+Saved to gallery, result metadata returned to JS
 ```
 
 ---
 
-### 2. Client
+## Repository Layout
 
-#### Prerequisites
+```
+.
+├── Docs/                          # Architecture docs, project spec
+│   ├── BundlingPlan.md
+│   ├── Layers.md
+│   ├── Plan.md
+│   ├── Stack.md
+│   └── DSAI352_Bonus_Project_Specification.pdf
+│
+├── Notebooks/
+│   └── CV_New_method.ipynb        # Reference inference notebook (Colab)
+│
+├── app/                           # Expo + React Native application
+│   ├── app/                       # Expo Router screens
+│   │   ├── _layout.tsx
+│   │   └── record.tsx
+│   ├── android/                   # Native Android project
+│   │   └── app/src/main/
+│   │       ├── assets/            # Bundled TFLite model
+│   │       │   └── best_unquantized.tflite
+│   │       └── java/.../processing/
+│   │           ├── ProcessingModule.kt
+│   │           ├── ProcessingPackage.kt
+│   │           ├── VideoProcessor.kt
+│   │           ├── TFLiteDetector.kt
+│   │           └── PinTracker.kt
+│   ├── Model/                     # Source model files
+│   │   ├── best_float32.tflite
+│   │   └── best_unquantized.tflite
+│   ├── app.json
+│   ├── package.json
+│   └── tsconfig.json
+│
+└── README.md
+```
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **UI** | React Native, Expo, TypeScript, Expo Router |
+| **Build** | EAS Development Build (custom native modules) |
+| **Camera** | `expo-camera` |
+| **Video Playback** | `expo-video` |
+| **Native Code** | Kotlin, Expo Modules API |
+| **Inference** | TensorFlow Lite Android (CPU, 4 threads) |
+| **Model** | Fine-tuned YOLOv8n → TFLite (unquantized float32) |
+| **Video I/O** | Android `MediaCodec`, `MediaMuxer`, `MediaExtractor` |
+| **Encoder Input** | OpenGL ES 2.0 surface (EGL + GLES20) — no stride issues |
+| **Tracking** | IoU + center-distance matching (rule-based) |
+| **Rendering** | Android `Canvas` / `Bitmap` drawing |
+
+---
+
+## Model Details
+
+- **Architecture**: YOLOv8n (nano) fine-tuned via transfer learning
+- **Input size**: 640 × 640 pixels
+- **Output**: `[1, 300, 6]` — up to 300 detections, each `[x1, y1, x2, y2, confidence, class_id]`
+- **NMS**: Built into the exported model
+- **Classes** (4):
+
+| ID | Class | Color |
+|----|-------|-------|
+| 0 | `ball` | Yellow |
+| 1 | `car` | Green |
+| 2 | `fallen-pins` | Red (+ yellow glow) |
+| 3 | `standing-pins` | Magenta |
+
+- **Confidence threshold**: 0.35 (all classes)
+- **Format**: TFLite float32 (unquantized), ~10 MB
+
+---
+
+## Tracking Logic
+
+The `PinTracker` mirrors the logic from the reference Colab notebook:
+
+| Parameter | Value |
+|-----------|-------|
+| Match distance | 70 px |
+| Match IoU | 0.20 |
+| Match score | `IoU - (distance / 1000)` |
+| Fall detection | Instant on standing → fallen class transition |
+| Memory cleanup | Prune tracks missing > 20 frames |
+
+**Fall order** is assigned at the moment of the first standing → fallen transition for each tracked pin. The fall time is computed as `frameIndex / fps` in seconds.
+
+---
+
+## How to Build & Run
+
+### Prerequisites
 
 - Node.js 18+
-- **Expo Go** installed on your iOS or Android device
+- Android SDK + NDK
+- Java 17+
+- An Android device (or emulator with camera support)
 
-#### Install dependencies
+### Setup
 
 ```bash
-cd client
+# Clone the repo
+git clone https://github.com/AliAshraf69420/ObjectDetectionAndTrackingMobileApp.git
+cd ObjectDetectionAndTrackingMobileApp
+
+# Install JS dependencies
+cd app
 npm install
+
+# Generate the native Android project (if not already present)
+npx expo prebuild --platform android
+
+# Build and run on a connected Android device
+npx expo run:android
 ```
 
-#### Configure environment
+> **Note**: This is a custom Expo development build (not Expo Go) because the app requires native TFLite libraries, `MediaCodec` video processing, and OpenGL ES encoder input.
 
-```bash
-cp .env.example .env
-```
+### Model Setup
 
-Edit `client/.env` and set the server URL to your machine's LAN IP from the previous step:
+The model file `best_unquantized.tflite` is already bundled in `app/android/app/src/main/assets/`. If you want to use a different model:
 
-```
-EXPO_PUBLIC_SERVER_URL=http://192.168.x.x:8000
-```
-
-#### Start the Expo dev server
-
-```bash
-npm start
-```
-
-This prints a QR code in the terminal.
-
-#### Connect your phone
-
-1. Open **Expo Go** on your iOS or Android device.
-2. Scan the QR code shown in the terminal.
-3. Grant camera permission when prompted.
-4. Tap **Start tracking** and point the camera at a bottle (or whichever `TARGET_CLASS` you configured).
+1. Place your `.tflite` file in `app/android/app/src/main/assets/`
+2. Update the `MODEL_FILE` constant in `TFLiteDetector.kt`
+3. Rebuild the app
 
 ---
 
-## Tracking behaviour
+## Output
 
-The server runs a greedy IoU-based multi-object tracker across frames. Each detected object receives a stable `track_id` that persists as long as it remains visible (IoU threshold ≥ 0.15 between consecutive frames). New detections that don't match an existing track get a fresh ID.
+The app produces:
 
-The client renders:
-- **Color-coded bounding boxes** — each track ID maps to a fixed color from an 8-color palette
-- **Motion trails** — up to 30 fading center-point dots per track showing recent movement
-- **Status panel** — server URL, tracking on/off, round-trip latency, object count, frame resolution, and any error
+1. **Annotated video** saved to the device gallery, containing:
+   - Bounding boxes for all detected objects
+   - Pin IDs and fall order labels
+   - Car trajectory path
+   - Standing/fallen pin count panel (top-left)
+   - Fall History timeline (top-right)
 
-Frames are captured at 25% JPEG quality and sent as fast as the server can respond (with a 20 ms minimum gap between requests).
+2. **Structured result data** returned to the JS layer:
+
+```json
+{
+  "outputVideoUri": "content://...",
+  "elapsedMs": 8500,
+  "pinsKnockedDown": 4,
+  "pinEvents": [
+    { "pinTrackId": 2, "order": 1, "timeMs": 1200 },
+    { "pinTrackId": 5, "order": 2, "timeMs": 1800 },
+    { "pinTrackId": 1, "order": 3, "timeMs": 2400 },
+    { "pinTrackId": 3, "order": 4, "timeMs": 3100 }
+  ],
+  "carPath": [
+    { "timeMs": 0, "x": 120, "y": 600 },
+    { "timeMs": 100, "x": 135, "y": 580 }
+  ]
+}
+```
 
 ---
 
-## API reference
+## Key Design Decisions
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/health` | GET | Server status, backend name, model info, ultralytics availability |
-| `/track-frame` | POST | Multipart `file` field (JPEG); returns `{ width, height, boxes: [{ x, y, width, height, label, confidence, track_id }] }` |
+| Decision | Rationale |
+|----------|-----------|
+| **Surface encoder input** (EGL/GLES20) | Eliminates stride/format mismatch corruption across all Android hardware encoders |
+| **Direct ByteBuffer YUV decode** | Hardware `getOutputImage()` returns null on many devices; raw buffer fallback is universal |
+| **Monotonic timestamp enforcement** | Non-monotonic PTS corrupts the native MP4 muxer (`IllegalStateException`) |
+| **try-finally resource cleanup** | Prevents "Failed to stop the muxer" errors from leaked `MediaCodec`/`MediaMuxer` instances |
+| **Instant fall detection** (no multi-frame confirm) | Matches notebook reference implementation; avoids delayed/missed fall events |
+| **Unquantized model** | Better detection accuracy for the small toy bowling objects vs. quantized variant |
+
+---
+
+## Course Context
+
+This project was developed for **DSAI 352** (Bonus Project) at the American University in Cairo. The task requires building a mobile application that:
+
+- Captures a live demonstration video of an RC car knocking down bowling pins
+- Processes the video **entirely on-device** (no cloud/server inference)
+- Uses a **custom-trained** or fine-tuned object detection model
+- Detects and orders pin falls
+- Optionally tracks the car's trajectory
+- Produces an annotated output video with scoring overlays
