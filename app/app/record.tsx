@@ -7,6 +7,7 @@ import {
   Alert,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useAppStore } from '../src/store/AppContext';
 import { useRecordingTimer } from '../src/hooks/useRecordingTimer';
@@ -40,6 +41,23 @@ export default function RecordScreen() {
   const stopRecording = useCallback(() => {
     cameraRef.current?.stopRecording();
   }, []);
+
+  const pickFromGallery = useCallback(async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Gallery access is needed to pick a video.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['videos'],
+      allowsEditing: false,
+      quality: 1,
+    });
+    if (!result.canceled && result.assets[0]?.uri) {
+      dispatch({ type: 'STOP_RECORDING', uri: result.assets[0].uri });
+      router.push('/processing');
+    }
+  }, [dispatch]);
 
   if (!cameraPermission) {
     return <View style={styles.center}><Text style={styles.textSec}>Requesting permissions…</Text></View>;
@@ -95,7 +113,13 @@ export default function RecordScreen() {
           <View style={[styles.recordInner, isRecording && styles.recordInnerStop]} />
         </TouchableOpacity>
 
-        <View style={styles.btnIcon} />
+        <TouchableOpacity
+          style={[styles.btnIcon, isRecording && styles.btnIconDisabled]}
+          onPress={pickFromGallery}
+          disabled={isRecording}
+        >
+          <Text style={styles.btnIconText}>🖼</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -187,6 +211,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  btnIconDisabled: { opacity: 0.3 },
   btnIconText: { color: colors.textPrimary, fontSize: font.xl },
 
   btnPrimary: {

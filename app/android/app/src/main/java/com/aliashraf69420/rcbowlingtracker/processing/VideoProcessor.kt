@@ -327,6 +327,14 @@ object VideoProcessor {
         val detections = if (frameIdx % PROCESS_EVERY_N_FRAMES == 0)
             detector.detect(bitmap) else emptyList()
 
+        if (frameIdx % 30 == 0) {
+            android.util.Log.d("VideoProcessor", "frame $frameIdx: ${detections.size} dets, bitmap=${bitmap.width}x${bitmap.height} — " +
+                detections.joinToString { d ->
+                    "${TFLiteDetector.CLASS_NAMES[d.classId]} ${"%.2f".format(d.conf)} " +
+                    "[${d.box[0].toInt()},${d.box[1].toInt()},${d.box[2].toInt()},${d.box[3].toInt()}]"
+                })
+        }
+
         val pinDets  = detections.filter { it.classId == TFLiteDetector.FALLEN_ID  || it.classId == TFLiteDetector.STANDING_ID }
         val carDets  = detections.filter { it.classId == TFLiteDetector.CAR_ID }
         val ballDets = detections.filter { it.classId == TFLiteDetector.BALL_ID }

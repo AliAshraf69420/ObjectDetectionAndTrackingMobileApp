@@ -1,4 +1,4 @@
-# RC Bowling Tracker 🎳🚗
+# RC Bowling Tracker 
 
 An Android mobile app that records a toy RC car bowling setup, runs **fully offline** YOLOv8 object detection on every frame, tracks pin falls and car trajectory, and produces an annotated output video with fall order, path overlay, and scoring — all on-device.
 
@@ -144,7 +144,7 @@ Saved to gallery, result metadata returned to JS
 | 3 | `standing-pins` | Magenta |
 
 - **Confidence threshold**: 0.35 (all classes)
-- **Format**: TFLite float32 (unquantized), ~10 MB
+- **Format**: TFLite float32 (unquantized, full precision), ~10 MB
 
 ---
 
