@@ -1,0 +1,509 @@
+\documentclass{zc-ust-hw}
+
+\usepackage{lipsum}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+% -------------------------------------------------------------------
+% Section / subsection dividers
+% -------------------------------------------------------------------
+\usepackage{titlesec}
+
+% Thick rule after every \section
+\titleformat{\section}
+  {\normalfont\Large\bfseries}{\thesection}{1em}{}
+  [\vspace{2pt}\rule{\linewidth}{0.4mm}\vspace{4pt}]
+
+% Thin rule after every \subsection
+\titleformat{\subsection}
+  {\normalfont\large\bfseries}{\thesubsection}{1em}{}
+  [\vspace{1pt}\rule{\linewidth}{0.1mm}\vspace{2pt}]
+
+\name{Ali Ashraf Hassan Abdelghany}
+\id{202301812}
+\course{DSAI352}
+\assignment{RC-Bowling-Tracker}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\newpage
+
+% ============================================================================
+\section{Introduction}
+% ============================================================================
+
+RC Bowling Tracker is an Android mobile application that records a toy RC car bowling setup, runs fully offline YOLOv26 object detection on every frame, tracks pin falls and car trajectory, and produces an annotated output video with fall order, path overlay, and scoring—all on-device without any network dependency.
+
+The project was developed for the DSAI\,352 Bonus Project at Zewail City.
+The core requirement is to build a mobile application that captures a live demonstration video of an RC car knocking down bowling pins, processes the video entirely on-device using a custom-trained or fine-tuned object detection model, detects and orders pin falls, optionally tracks the car's trajectory, and produces an annotated output video with scoring overlays.
+
+% ============================================================================
+\section{System Architecture}
+% ============================================================================
+
+The system is divided into two major layers: a \textbf{React Native / Expo} front-end written in TypeScript, and a \textbf{Kotlin native module} that handles the entire computer vision pipeline.
+
+\subsection{High-Level Layer Diagram}
+
+\begin{lstlisting}[language={}, basicstyle=\ttfamily\small, frame=single]
++----------------------------------------------------------+
+|  React Native / Expo (TypeScript)                        |
+|    RecordScreen  -- camera preview, start/stop           |
+|    ProcessingScreen -- progress bar + status             |
+|    ResultScreen  -- annotated video + score summary      |
++----------------------------+-----------------------------+
+                             | ProcessingModule.processVideo(uri)
+                             v
++----------------------------------------------------------+
+|  Kotlin Native Module (Android)                          |
+|    VideoProcessor  -- decode / encode / main loop        |
+|    TFLiteDetector  -- YOLOv26n inference (640x640)        |
+|    PinTracker      -- IoU + center-distance matching     |
+|    EglSurfaceHelper -- GPU surface input for encoder     |
++----------------------------------------------------------+
+\end{lstlisting}
+
+\subsection{Processing Pipeline}
+
+The end-to-end pipeline proceeds as follows:
+
+\begin{enumerate}
+    \item The user records a video via the camera screen (\texttt{expo-camera}).
+    \item The raw video is saved to local storage.
+    \item The React Native orchestration layer passes the video URI to the Kotlin \texttt{ProcessingModule} over the React Native bridge.
+    \item The native module copies the video to a temporary file and initialises the \texttt{TFLiteDetector} and \texttt{PinTracker}.
+    \item \texttt{VideoProcessor} decodes frames via \texttt{MediaCodec}, runs TFLite YOLOv26n inference on each frame, updates the tracker, draws annotations on an \texttt{Android Canvas}, and pushes the annotated bitmap to the hardware encoder through an EGL/OpenGL ES surface.
+    \item The encoded H.264 output is muxed into an MP4 via \texttt{MediaMuxer} and saved to the device gallery.
+    \item Structured result metadata (elapsed time, pin events, car path) is returned to the JavaScript layer for display on the result screen.
+\end{enumerate}
+
+\subsection{Technology Stack}
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Layer} & \textbf{Technology} \\
+\midrule
+UI               & React Native, Expo, TypeScript, Expo Router \\
+Build            & EAS Development Build (custom native modules) \\
+Camera           & \texttt{expo-camera} \\
+Video Playback   & \texttt{expo-video} \\
+Native Code      & Kotlin, React Native Bridge (\texttt{ReactContextBaseJavaModule}) \\
+Inference        & TensorFlow Lite Android (CPU, 4 threads) \\
+Model            & Fine-tuned YOLOv26n $\rightarrow$ TFLite (unquantized float32) \\
+Video I/O        & Android \texttt{MediaCodec}, \texttt{MediaMuxer}, \texttt{MediaExtractor} \\
+Encoder Input    & OpenGL ES 2.0 surface (EGL + GLES20) \\
+Tracking         & IoU + center-distance matching (rule-based) \\
+Rendering        & Android \texttt{Canvas} / \texttt{Bitmap} drawing \\
+\bottomrule
+\end{tabularx}
+\caption{Technology stack summary.}
+\end{table}
+
+% ============================================================================
+\section{Model Details}
+% ============================================================================
+
+\subsection{Architecture and Training}
+
+The detector is a \textbf{YOLOv26n} (nano) model fine-tuned via transfer learning on a custom toy bowling dataset.
+The model was trained using the Ultralytics YOLO framework and exported to TensorFlow Lite format.
+
+\begin{itemize}
+    \item \textbf{Input size}: $640 \times 640$ pixels.
+    \item \textbf{Output}: $[1, 300, 6]$ — up to 300 detections, each $[x_1, y_1, x_2, y_2, \text{confidence}, \text{class\_id}]$.
+    \item \textbf{NMS}: Built into the exported TFLite model (post-processing fused at export time).
+    \item \textbf{Format}: Float32 (unquantized, full precision), approximately 10\,MB.
+\end{itemize}
+
+\subsection{Classes}
+
+The model detects four classes:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{clll}
+\toprule
+\textbf{ID} & \textbf{Class} & \textbf{Annotation Color} & \textbf{Confidence Threshold} \\
+\midrule
+0 & \texttt{ball}           & Yellow (gold)     & 0.35 \\
+1 & \texttt{car}            & Sky blue          & 0.35 \\
+2 & \texttt{fallen-pins}    & Orange-red + glow & 0.35 \\
+3 & \texttt{standing-pins}  & Lime green        & 0.35 \\
+\bottomrule
+\end{tabular}
+\caption{Detection classes, annotation colours, and confidence thresholds.}
+\end{table}
+
+\subsection{Inference on Device}
+
+The \texttt{TFLiteDetector} class loads the model from Android assets at initialisation.
+Each frame is resized to $640 \times 640$, normalised to $[0, 1]$, and packed into a direct \texttt{ByteBuffer} in CHW RGB format.
+The interpreter runs with 4 CPU threads.
+
+The detector automatically inspects the output tensor shapes at init time and supports two output formats:
+
+\begin{enumerate}
+    \item \textbf{NMS'd output} $[1, N, 6]$: coordinates are treated as normalised and scaled to the original frame dimensions.
+    \item \textbf{Raw YOLO output} $[1, 8, 8400]$ (transposed) or $[1, 8400, 8]$: centre-form boxes are converted to corner-form, and a greedy per-class NMS with an IoU threshold of 0.5 is applied in post-processing.
+\end{enumerate}
+
+This dual-path design ensures compatibility with different TFLite export configurations of the same YOLOv26 model.
+
+% ============================================================================
+\section{Pin Tracking and Fall Detection}
+% ============================================================================
+
+The \texttt{PinTracker} mirrors the logic from the reference Colab notebook (\texttt{CV\_New\_method.ipynb}).
+
+\subsection{Matching Algorithm}
+
+On each frame, every pin detection is compared against all existing tracks.
+A detection is a candidate match for a track if either:
+\begin{itemize}
+    \item The Euclidean distance between the bounding-box centres is less than 70\,px, \textbf{or}
+    \item The IoU between the two boxes exceeds 0.20.
+\end{itemize}
+
+The match score is computed as:
+\[
+    \text{score} = \text{IoU} - \frac{\text{distance}}{1000}
+\]
+The detection is assigned to the track with the highest score.
+If no existing track matches, a new track is created with a fresh ID.
+
+\subsection{Fall Detection}
+
+A pin is marked as \emph{fallen} the instant a \texttt{standing-pins} $\rightarrow$ \texttt{fallen-pins} class transition is observed for the corresponding track.
+No multi-frame confirmation window is used; this matches the reference notebook implementation and avoids delayed or missed fall events.
+
+At the moment of transition:
+\begin{itemize}
+    \item The fall order is assigned as a monotonically increasing integer.
+    \item The fall time is computed as $\text{frameIndex} / \text{fps}$ (seconds).
+    \item The presentation timestamp is recorded by \texttt{VideoProcessor} for accurate event timing.
+\end{itemize}
+
+\subsection{Track Maintenance}
+
+Tracks that are not matched for more than 20 consecutive frames are pruned.
+This prevents ghost tracks from accumulating when pins leave the field of view.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Match distance threshold & 70\,px \\
+Match IoU threshold      & 0.20 \\
+Match score              & $\text{IoU} - (\text{dist} / 1000)$ \\
+Fall detection            & Instant on standing $\rightarrow$ fallen transition \\
+Track pruning             & Remove after $>20$ missing frames \\
+\bottomrule
+\end{tabular}
+\caption{PinTracker parameters.}
+\end{table}
+
+% ============================================================================
+\section{Video Processing and Rendering}
+% ============================================================================
+
+\subsection{Decode--Infer--Annotate--Encode Loop}
+
+\texttt{VideoProcessor} implements a synchronous pipeline that runs on a background thread:
+
+\begin{enumerate}
+    \item \textbf{Decode}: A hardware \texttt{MediaCodec} decoder extracts raw frames.
+    The decoder attempts \texttt{getOutputImage()} for YUV 4:2:0 Image access; if this returns \texttt{null} (common on many hardware decoders), it falls back to raw \texttt{ByteBuffer} YUV conversion.
+    \item \textbf{Infer}: Each decoded bitmap is passed to \texttt{TFLiteDetector.detect()}.
+    \item \textbf{Track}: Pin detections are fed to \texttt{PinTracker.update()}; car detections are appended to the path log.
+    \item \textbf{Annotate}: A new bitmap is drawn on an Android \texttt{Canvas} with:
+    \begin{itemize}
+        \item Colour-coded bounding boxes (gold for ball, sky blue for car, lime green for standing pins, orange-red with orange glow for fallen pins).
+        \item Pin IDs and fall-order labels.
+        \item Car path line (purple with black shadow underlay).
+        \item Standing/fallen pin count panel (top-left).
+        \item Fall history timeline panel (top-right).
+    \end{itemize}
+    \item \textbf{Encode}: The annotated bitmap is uploaded to a GPU texture via \texttt{GLUtils.texImage2D()} and rendered onto the encoder's input \texttt{Surface} through an EGL fullscreen quad.
+    The presentation timestamp is set via \texttt{eglPresentationTimeANDROID()}.
+\end{enumerate}
+
+\subsection{EGL Surface Encoder Input}
+
+Instead of feeding raw pixel buffers to the encoder (which causes stride/format mismatch corruption across different Android hardware encoders), the system uses an \textbf{OpenGL ES 2.0 surface input} approach:
+
+\begin{enumerate}
+    \item An EGL context and window surface are created from the encoder's \texttt{InputSurface}.
+    \item A simple vertex + fragment shader pair renders a textured fullscreen quad.
+    \item Each annotated bitmap is uploaded as a GL texture, drawn, and then the surface is swapped with the correct presentation timestamp.
+\end{enumerate}
+
+This completely eliminates row-shift corruption caused by stride mismatches—the GPU handles all pixel format conversion internally.
+
+\subsection{Resource Cleanup}
+
+All codec resources are managed within a \texttt{try-finally} block with strict ordering:
+\begin{enumerate}
+    \item EGL helper and input surface release.
+    \item Encoder stop and release.
+    \item Decoder stop and release.
+    \item Extractor release.
+    \item Muxer stop (only if started and has data) and release \textbf{last}.
+\end{enumerate}
+
+This ordering prevents the ``Failed to stop the muxer'' error that occurs when Android's \texttt{MediaMuxer.release()} internally calls \texttt{stop()} on a half-written file.
+
+% ============================================================================
+\section{React Native Bridge}
+% ============================================================================
+
+The \texttt{ProcessingModule} Kotlin class extends \texttt{ReactContextBaseJavaModule} and exposes two methods to JavaScript:
+
+\begin{itemize}
+    \item \texttt{isNativeAvailable()}: returns \texttt{true} to confirm that the native module is loaded.
+    \item \texttt{processVideo(inputVideoUri, enableCarPath)}: launches video processing on a background thread and resolves the promise with a \texttt{WritableMap} containing the output video URI, elapsed time, pin events array, and car path array.
+\end{itemize}
+
+Progress updates are emitted as React Native device events (\texttt{ProcessingProgress}) containing the current stage, percentage, and human-readable message.
+The UI subscribes to these events to display a real-time progress bar on the processing screen.
+
+% ============================================================================
+\section{Application Screens}
+% ============================================================================
+
+The UI is built with Expo Router and consists of the following screens:
+
+\begin{description}[leftmargin=2cm, style=nextline]
+    \item[\texttt{RecordScreen}] Camera preview with start/stop recording controls.
+    Uses \texttt{expo-camera} for video capture.
+    \item[\texttt{ProcessingScreen}] Displays a progress bar and status messages received from the native module's progress events.
+    \item[\texttt{ResultScreen}] Plays the annotated output video (\texttt{expo-video}) and displays a score summary: elapsed time, total pins knocked down, and a table of pin-fall events with timestamps and hit order.
+    \item[\texttt{DebugScreen}] Development-time diagnostics: model load status, inference timing, detection counts, and error logs.
+\end{description}
+
+% ============================================================================
+\section{Key Design Decisions}
+% ============================================================================
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Decision} & \textbf{Rationale} \\
+\midrule
+Surface encoder input (EGL/GLES20) & Eliminates stride/format mismatch corruption across all Android hardware encoders. \\
+Direct ByteBuffer YUV decode fallback & Hardware \texttt{getOutputImage()} returns \texttt{null} on many devices; raw buffer fallback is universal. \\
+Monotonic timestamp enforcement & Non-monotonic PTS corrupts the native MP4 muxer (\texttt{IllegalStateException}). \\
+\texttt{try-finally} resource cleanup & Prevents ``Failed to stop the muxer'' errors from leaked \texttt{MediaCodec}/\texttt{MediaMuxer} instances. \\
+Instant fall detection (no multi-frame confirm) & Matches notebook reference implementation; avoids delayed/missed fall events. \\
+Unquantized float32 model & Better detection accuracy for the small toy bowling objects vs.\ quantized variant. \\
+Dual output format support & Handles both NMS'd $[1, N, 6]$ and raw transposed $[1, 8, 8400]$ TFLite exports transparently. \\
+\bottomrule
+\end{tabularx}
+\caption{Key design decisions and their rationale.}
+\end{table}
+
+% ============================================================================
+\section{Output}
+% ============================================================================
+
+The application produces two outputs:
+
+\subsection{Annotated Video}
+
+An annotated MP4 video saved to the device gallery, containing:
+\begin{itemize}
+    \item Colour-coded bounding boxes for all detected objects.
+    \item Pin IDs and fall-order labels with timestamps.
+    \item Car trajectory path (purple line with black shadow).
+    \item Standing/fallen pin count panel (top-left, semi-transparent dark background with lime accent bar).
+    \item Fall History timeline panel (top-right, semi-transparent dark background with orange-red accent bar).
+\end{itemize}
+
+\subsection{Structured Result Data}
+
+A JSON object returned to the JavaScript layer:
+
+\begin{lstlisting}[language=Java, caption={Structured result JSON returned to the JS layer.}]
+{
+  "outputVideoUri": "content://...",
+  "elapsedMs": 8500,
+  "pinsKnockedDown": 4,
+  "pinEvents": [
+    { "pinTrackId": 2, "order": 1, "timeMs": 1200 },
+    { "pinTrackId": 5, "order": 2, "timeMs": 1800 },
+    ...
+  ],
+  "carPath": [
+    { "timeMs": 0, "x": 120, "y": 600 },
+    ...
+  ]
+}
+\end{lstlisting}
+
+% ============================================================================
+\section{Future Work: iOS Layer}
+\label{sec:future-ios}
+% ============================================================================
+
+The current implementation targets Android exclusively.
+This section describes the planned architecture for an iOS native layer that would bring the same on-device inference and video processing capabilities to iPhones and iPads.
+
+\subsection{Motivation}
+
+Although the Android layer satisfies all project requirements, iOS support would:
+\begin{itemize}
+    \item Expand the user base to iOS devices, which represent a large share of the mobile market.
+    \item Leverage Apple's hardware-accelerated Neural Engine and GPU cores for potentially faster inference.
+    \item Demonstrate true cross-platform capability of the React Native / Expo architecture.
+\end{itemize}
+
+\subsection{Architecture Overview}
+
+The iOS layer would mirror the Android architecture with platform-native equivalents:
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Component} & \textbf{Android (Current)} & \textbf{iOS (Planned)} \\
+\midrule
+Native Language    & Kotlin                       & Swift \\
+Bridge             & \texttt{ReactContextBaseJavaModule} & \texttt{RCTBridgeModule} or Expo Modules Swift API \\
+Video Decode       & \texttt{MediaCodec} + \texttt{MediaExtractor} & \texttt{AVAssetReader} + \texttt{AVAssetReaderTrackOutput} \\
+Video Encode       & \texttt{MediaCodec} + \texttt{MediaMuxer}     & \texttt{AVAssetWriter} + \texttt{AVAssetWriterInput} \\
+Encoder Surface    & EGL + OpenGL ES 2.0 surface  & \texttt{AVAssetWriterInputPixelBufferAdaptor} \\
+Inference Runtime  & TensorFlow Lite Android      & Core ML (\texttt{.mlmodel}) or TensorFlow Lite iOS \\
+Frame Drawing      & Android \texttt{Canvas} / \texttt{Bitmap} & Core Graphics (\texttt{CGContext}) / \texttt{UIImage} \\
+Gallery Save       & \texttt{MediaStore} content provider & \texttt{PHPhotoLibrary} \\
+\bottomrule
+\end{tabularx}
+\caption{Platform equivalences between the Android and planned iOS layers.}
+\end{table}
+
+\subsection{Model Conversion for iOS}
+
+Two inference runtime options are available on iOS:
+
+\begin{enumerate}
+    \item \textbf{Core ML} (recommended): Convert the trained YOLOv26n model to the \texttt{.mlmodel} format using the \texttt{coremltools} Python package.
+    Core ML automatically leverages the Apple Neural Engine (ANE) on A12+ and M-series chips, yielding significantly faster inference than CPU-only execution.
+    The conversion pipeline would be:
+\begin{lstlisting}[language={}, caption={Core ML model conversion pipeline.}]
+YOLOv26n (PyTorch) -> ONNX -> Core ML (.mlmodel)
+\end{lstlisting}
+    Ultralytics provides a built-in \texttt{model.export(format="coreml")} command that handles this in one step.
+
+    \item \textbf{TensorFlow Lite iOS}: Use the same \texttt{.tflite} model file as Android with the TensorFlow Lite Swift/Obj-C runtime.
+    This maximises model parity but forfeits ANE acceleration (TFLite on iOS supports CPU and GPU delegate only, not the Neural Engine).
+\end{enumerate}
+
+The Core ML path is recommended because it provides hardware acceleration with zero additional configuration and integrates natively with the Apple toolchain.
+
+\subsection{Video Processing Pipeline on iOS}
+
+The iOS video processing module (\texttt{VideoProcessorIOS.swift}) would implement the same decode--infer--annotate--encode loop:
+
+\begin{enumerate}
+    \item \textbf{Decode}: \texttt{AVAssetReader} with a \texttt{kCVPixelFormatType\_32BGRA} output setting extracts frames as \texttt{CVPixelBuffer} objects.
+    Unlike Android, iOS decoders produce pixel buffers with well-defined strides, so no YUV conversion fallback is needed.
+
+    \item \textbf{Infer}: Each \texttt{CVPixelBuffer} is resized to $640 \times 640$ (via \texttt{vImage} or Core Graphics) and fed to the Core ML model using \texttt{VNCoreMLRequest} (Vision framework integration) or direct \texttt{MLModel.prediction()} calls.
+
+    \item \textbf{Track}: The same tracking algorithm (IoU + centre-distance matching) would be re-implemented in Swift.
+    The \texttt{PinTracker} logic is purely arithmetic and translates directly.
+
+    \item \textbf{Annotate}: Core Graphics (\texttt{CGContext}) draws bounding boxes, labels, path lines, and the HUD panels onto a \texttt{CGImage}/\texttt{UIImage}.
+
+    \item \textbf{Encode}: \texttt{AVAssetWriter} with an H.264 \texttt{AVAssetWriterInput} encodes annotated frames.
+    A \texttt{AVAssetWriterInputPixelBufferAdaptor} manages the pixel buffer pool and presentation timestamps—no manual EGL/OpenGL setup is needed, as Apple's API handles surface management internally.
+\end{enumerate}
+
+\subsection{React Native Bridge on iOS}
+
+The iOS native module would expose the same JavaScript API:
+
+\begin{lstlisting}[language=Java, caption={JavaScript call — identical API on both platforms.}]
+// Same JS call, different native implementation
+const result = await ProcessingModule.processVideo(uri, true);
+\end{lstlisting}
+
+Using the Expo Modules API (Swift), the bridge definition would be:
+
+\begin{lstlisting}[language=Swift, caption={Expo Modules Swift bridge definition for iOS.}]
+import ExpoModulesCore
+
+public class ProcessingModule: Module {
+  public func definition() -> ModuleDefinition {
+    Name("ProcessingModule")
+
+    AsyncFunction("processVideo") {
+      (uri: String, enableCarPath: Bool) -> [String: Any] in
+      return try await VideoProcessorIOS.process(
+        inputUri: uri, enableCarPath: enableCarPath
+      )
+    }
+
+    Events("ProcessingProgress")
+  }
+}
+\end{lstlisting}
+
+Because the React Native / TypeScript layer is already platform-agnostic, no changes to the UI code would be required—only the native module registration.
+
+\subsection{Key Differences and Challenges}
+
+\begin{enumerate}
+    \item \textbf{Development environment}: iOS builds require macOS with Xcode; the current development is on Arch Linux.
+    A macOS machine or CI service (e.g., EAS Build cloud) would be needed.
+
+    \item \textbf{Pixel format handling}: iOS decoders output BGRA pixel buffers with consistent strides, eliminating the YUV conversion and stride mismatch issues encountered on Android.
+    This simplifies the decode stage significantly.
+
+    \item \textbf{Neural Engine acceleration}: Core ML on A12+ chips can run the YOLOv26n model on the 16-core Neural Engine, potentially achieving sub-10\,ms per-frame inference—much faster than the CPU-only TFLite path on Android.
+
+    \item \textbf{Video encoding}: \texttt{AVAssetWriter} provides a higher-level API than Android's \texttt{MediaCodec}/\texttt{MediaMuxer} combination.
+    There is no need for manual EGL surface management or monotonic timestamp enforcement—Apple's writer handles these details.
+
+    \item \textbf{Privacy and permissions}: iOS requires explicit \texttt{NSCameraUsageDescription} and \texttt{NSPhotoLibraryAddUsageDescription} entries in \texttt{Info.plist}, plus runtime permission prompts managed through the Expo permissions API.
+
+\end{enumerate}
+
+
+\textbf{The iOS layer would be implemented in the following order:}
+\begin{enumerate}
+    \item Convert the YOLOv26n model to Core ML format and validate inference output parity with the TFLite model.
+    \item Implement the Swift \texttt{VideoProcessorIOS} with decode--encode loop (without inference) to verify video I/O.
+    \item Integrate Core ML inference and validate detection outputs on sample frames.
+    \item Port the \texttt{PinTracker} to Swift and validate fall-order assignment.
+    \item Implement the annotation renderer using Core Graphics.
+    \item Wire up the Expo Module bridge and test end-to-end from the React Native UI.
+    \item Perform device testing on multiple iPhone models (iPhone~12 and newer recommended for Neural Engine performance).
+\end{enumerate}
+
+% ============================================================================
+\section{Conclusion}
+% ============================================================================
+
+RC Bowling Tracker demonstrates a complete on-device computer vision pipeline—from video capture through object detection, multi-object tracking, and annotated video rendering—running entirely on a mobile phone without any server dependency.
+
+The key technical contributions of the project include:
+\begin{itemize}
+    \item A robust dual-format TFLite output parser that handles both NMS-processed and raw YOLO outputs.
+    \item An EGL surface-based encoder input strategy that eliminates cross-device stride corruption.
+    \item A deterministic resource cleanup protocol that prevents muxer failures across all Android hardware.
+    \item A clean separation between the React Native UI and the native processing pipeline, enabling straightforward future extension to iOS as detailed in Section~\ref{sec:future-ios}.
+\end{itemize}
+
+The architecture is designed to be modular: the same TypeScript UI code drives both the Android and future iOS implementations, with only the native video processing and inference layers needing platform-specific code.
+
+\end{document}

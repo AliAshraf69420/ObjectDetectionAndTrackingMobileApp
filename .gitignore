@@ -15,3 +15,11 @@ web-build/
 OutputVideoMilestones/
 
 CLAUDE.md
+
+Report/*.aux
+Report/*.fdb_latexmk
+Report/*.fls
+Report/*.log
+Report/*.out
+Report/*.synctex.gz
+Report/*.toc
