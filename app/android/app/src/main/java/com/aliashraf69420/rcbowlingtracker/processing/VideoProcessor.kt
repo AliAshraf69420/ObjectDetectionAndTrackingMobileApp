@@ -379,32 +379,42 @@ object VideoProcessor {
         val out    = src.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(out)
 
-        val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f }
+        // Color palette — BGR→RGB conversions of notebook CLASS_COLORS
+        val colorBall     = Color.rgb(255, 215,   0)   // gold
+        val colorCar      = Color.rgb(  0, 200, 255)   // sky blue
+        val colorFallen   = Color.rgb(255,  80,   0)   // orange-red
+        val colorStanding = Color.rgb(120, 255,  60)   // lime green
+        val colorPath     = Color.rgb(210,   0, 210)   // purple
+        val colorGlow     = Color.rgb(255, 165,   0)   // orange
+
+        val boxPaint  = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f }
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; textSize = 16f }
         val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
 
-        // Ball – yellow
-        boxPaint.color = Color.YELLOW
+        // Ball – gold
+        boxPaint.color = colorBall
         for (det in ballDets) {
             canvas.drawRect(det.box[0], det.box[1], det.box[2], det.box[3], boxPaint)
-            drawOutlinedLabel(canvas, "ball %.2f".format(det.conf), det.box[0], det.box[1] - 8f, Color.YELLOW, textPaint)
+            drawOutlinedLabel(canvas, "ball %.2f".format(det.conf), det.box[0], det.box[1] - 8f, colorBall, textPaint)
         }
 
-        // Car – green (notebook BGR (0,255,0))
-        boxPaint.color = Color.GREEN
+        // Car – sky blue, 3px border
+        boxPaint.strokeWidth = 3f; boxPaint.color = colorCar
         for (det in carDets) {
             canvas.drawRect(det.box[0], det.box[1], det.box[2], det.box[3], boxPaint)
-            drawOutlinedLabel(canvas, "car %.2f".format(det.conf), det.box[0], det.box[1] - 8f, Color.GREEN, textPaint)
+            drawOutlinedLabel(canvas, "car %.2f".format(det.conf), det.box[0], det.box[1] - 8f, colorCar, textPaint)
         }
+        boxPaint.strokeWidth = 2f
 
-        // Car path – red (notebook PATH_COLOR BGR (0,0,255))
+        // Car path – black shadow underlay then purple line
         if (carPathPoints.size > 1) {
-            val pathPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.RED; style = Paint.Style.STROKE; strokeWidth = 2f }
+            val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 4f }
+            val pathPaint   = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = colorPath;   style = Paint.Style.STROKE; strokeWidth = 2f }
             for (i in 1 until carPathPoints.size) {
-                canvas.drawLine(
-                    (carPathPoints[i-1]["x"] as Int).toFloat(), (carPathPoints[i-1]["y"] as Int).toFloat(),
-                    (carPathPoints[i]["x"] as Int).toFloat(),   (carPathPoints[i]["y"] as Int).toFloat(),
-                    pathPaint)
+                val x0 = (carPathPoints[i-1]["x"] as Int).toFloat(); val y0 = (carPathPoints[i-1]["y"] as Int).toFloat()
+                val x1 = (carPathPoints[i  ]["x"] as Int).toFloat(); val y1 = (carPathPoints[i  ]["y"] as Int).toFloat()
+                canvas.drawLine(x0, y0, x1, y1, shadowPaint)
+                canvas.drawLine(x0, y0, x1, y1, pathPaint)
             }
         }
 
@@ -412,47 +422,51 @@ object VideoProcessor {
         for (track in tracker.tracks) {
             val x1 = track.box[0]; val y1 = track.box[1]; val x2 = track.box[2]; val y2 = track.box[3]
             if (track.classId == TFLiteDetector.FALLEN_ID) {
-                // Yellow glow + red box (notebook style)
-                boxPaint.strokeWidth = 4f; boxPaint.color = Color.YELLOW
-                canvas.drawRect(x1, y1, x2, y2, boxPaint)
-                boxPaint.strokeWidth = 2f; boxPaint.color = Color.RED
+                // Orange glow expanded 2px outward (6px thick) + orange-red inner box
+                boxPaint.strokeWidth = 6f; boxPaint.color = colorGlow
+                canvas.drawRect(x1 - 2f, y1 - 2f, x2 + 2f, y2 + 2f, boxPaint)
+                boxPaint.strokeWidth = 2f; boxPaint.color = colorFallen
                 canvas.drawRect(x1, y1, x2, y2, boxPaint)
                 var label = "fallen-pins PIN:${track.trackId}"
                 if (track.confirmedFallen && track.fallTime != null)
                     label += " %.2fs #${track.fallOrder}".format(track.fallTime)
-                drawOutlinedLabel(canvas, label, x1, y1 - 8f, Color.RED, textPaint)
+                drawOutlinedLabel(canvas, label, x1, y1 - 8f, colorFallen, textPaint)
             } else {
-                boxPaint.strokeWidth = 2f; boxPaint.color = Color.MAGENTA
+                boxPaint.strokeWidth = 2f; boxPaint.color = colorStanding
                 canvas.drawRect(x1, y1, x2, y2, boxPaint)
-                drawOutlinedLabel(canvas, "standing-pins PIN:${track.trackId}", x1, y1 - 8f, Color.MAGENTA, textPaint)
+                drawOutlinedLabel(canvas, "standing-pins PIN:${track.trackId}", x1, y1 - 8f, colorStanding, textPaint)
             }
         }
 
-        // Count panel (top-left)
+        // Count panel (top-left) — semi-transparent dark bg, lime left accent bar, gray border
         val standingCount = tracker.tracks.count { it.classId == TFLiteDetector.STANDING_ID }
         val fallenCount   = tracker.tracks.count { it.classId == TFLiteDetector.FALLEN_ID }
-        fillPaint.color = Color.BLACK
+        fillPaint.color = Color.argb(184, 15, 15, 15)         // ~72% opaque dark
         canvas.drawRect(20f, 20f, 360f, 115f, fillPaint)
-        boxPaint.color = Color.WHITE; boxPaint.strokeWidth = 1f
+        boxPaint.color = Color.rgb(80, 80, 80); boxPaint.strokeWidth = 1f
         canvas.drawRect(20f, 20f, 360f, 115f, boxPaint)
-        textPaint.textSize = 20f; textPaint.color = Color.MAGENTA
+        fillPaint.color = colorStanding
+        canvas.drawRect(20f, 20f, 24f, 115f, fillPaint)       // left accent bar
+        textPaint.textSize = 20f; textPaint.color = colorStanding
         canvas.drawText("Standing pins: $standingCount", 35f, 55f, textPaint)
-        textPaint.color = Color.RED
+        textPaint.color = colorFallen
         canvas.drawText("Fallen pins: $fallenCount", 35f, 95f, textPaint)
 
-        // Fall timeline panel (top-right)
+        // Fall timeline panel (top-right) — semi-transparent dark bg, orange-red left accent bar, gray border
         val fallLog = tracker.tracks.filter { it.confirmedFallen && it.fallOrder != null }.sortedBy { it.fallOrder }
         if (fallLog.isNotEmpty()) {
             val fw = out.width.toFloat()
             val px1 = maxOf(fw - 390f, 20f); val py1 = 20f
             val px2 = fw - 20f; val py2 = minOf(80f + 25f * fallLog.size, 500f)
-            fillPaint.color = Color.BLACK
+            fillPaint.color = Color.argb(184, 15, 15, 15)
             canvas.drawRect(px1, py1, px2, py2, fillPaint)
-            boxPaint.color = Color.YELLOW
+            boxPaint.color = Color.rgb(80, 80, 80); boxPaint.strokeWidth = 1f
             canvas.drawRect(px1, py1, px2, py2, boxPaint)
-            textPaint.textSize = 18f; textPaint.color = Color.YELLOW
+            fillPaint.color = colorFallen
+            canvas.drawRect(px1, py1, px1 + 4f, py2, fillPaint)   // left accent bar
+            textPaint.textSize = 18f; textPaint.color = colorGlow
             canvas.drawText("Fall History", px1 + 15f, py1 + 30f, textPaint)
-            textPaint.textSize = 14f; textPaint.color = Color.WHITE
+            textPaint.textSize = 14f; textPaint.color = Color.rgb(220, 220, 220)
             var ty = py1 + 60f
             for (e in fallLog) {
                 canvas.drawText("#${e.fallOrder} Pin ${e.trackId} %.2fs".format(e.fallTime ?: 0f), px1 + 15f, ty, textPaint)
