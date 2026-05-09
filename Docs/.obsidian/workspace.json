@@ -27,12 +27,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "iosIntegrationPlan.md",
+                "file": "BundlingPlan.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "iosIntegrationPlan"
+              "title": "BundlingPlan"
             }
           }
         ],
@@ -201,6 +201,7 @@
   },
   "active": "df29c4d0c807bfff",
   "lastOpenFiles": [
+    "iosIntegrationPlan.md",
     "BundlingPlan.md",
     "Plan.md",
     "Layers.md",
